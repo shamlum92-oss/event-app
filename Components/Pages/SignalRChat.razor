@@ -1,0 +1,137 @@
+@page "/signalr-chat"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+
+<PageTitle>SignalR Chat</PageTitle>
+
+<h1>SignalR Chat</h1>
+
+<div class="chat-panel">
+	<p role="status">@connectionStatus</p>
+
+	<div class="messages" aria-live="polite">
+		@if (messages.Count == 0)
+		{
+			<p>No messages yet. Start the conversation.</p>
+		}
+		else
+		{
+			@foreach (var message in messages)
+			{
+				<p><strong>@message.User:</strong> @message.Text</p>
+			}
+		}
+	</div>
+
+	<EditForm Model="messageInput" OnValidSubmit="SendMessageAsync">
+		<div>
+			<label for="chat-user">Name</label>
+			<InputText id="chat-user" @bind-Value="messageInput.User" />
+		</div>
+		<div>
+			<label for="chat-message">Message</label>
+			<InputText id="chat-message" @bind-Value="messageInput.Text" />
+		</div>
+		<button type="submit" disabled="@(!isConnected || string.IsNullOrWhiteSpace(messageInput.User) || string.IsNullOrWhiteSpace(messageInput.Text))">
+			Send
+		</button>
+	</EditForm>
+</div>
+
+@code {
+	[Inject]
+	private NavigationManager Navigation { get; set; } = default!;
+
+	private readonly List<ChatMessage> messages = [];
+	private readonly MessageInput messageInput = new();
+	private HubConnection? hubConnection;
+	private IDisposable? messageSubscription;
+	private string connectionStatus = "Connecting...";
+	private bool isConnected;
+
+	protected override async Task OnAfterRenderAsync(bool firstRender)
+	{
+		if (!firstRender)
+		{
+			return;
+		}
+
+		hubConnection = new HubConnectionBuilder()
+			.WithUrl(Navigation.ToAbsoluteUri("/notificationHub"))
+			.WithAutomaticReconnect()
+			.Build();
+
+		messageSubscription = hubConnection.On<string, string>("ReceiveMessage", async (user, message) =>
+		{
+			await InvokeAsync(() =>
+			{
+				messages.Add(new ChatMessage(user, message));
+				StateHasChanged();
+			});
+		});
+
+		hubConnection.Reconnecting += _ =>
+		{
+			isConnected = false;
+			connectionStatus = "Reconnecting...";
+			return InvokeAsync(StateHasChanged);
+		};
+
+		hubConnection.Reconnected += _ =>
+		{
+			isConnected = true;
+			connectionStatus = "Connected";
+			return InvokeAsync(StateHasChanged);
+		};
+
+		hubConnection.Closed += _ =>
+		{
+			isConnected = false;
+			connectionStatus = "Disconnected";
+			return InvokeAsync(StateHasChanged);
+		};
+
+		try
+		{
+			await hubConnection.StartAsync();
+			isConnected = true;
+			connectionStatus = "Connected";
+		}
+		catch
+		{
+			connectionStatus = "Unable to connect to chat.";
+		}
+
+		await InvokeAsync(StateHasChanged);
+	}
+
+	private async Task SendMessageAsync()
+	{
+		if (hubConnection is null || !isConnected)
+		{
+			return;
+		}
+
+		await hubConnection.SendAsync("SendMessage", messageInput.User.Trim(), messageInput.Text.Trim());
+		messageInput.Text = string.Empty;
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		messageSubscription?.Dispose();
+
+		if (hubConnection is not null)
+		{
+			await hubConnection.DisposeAsync();
+		}
+	}
+
+	private sealed class MessageInput
+	{
+		public string User { get; set; } = string.Empty;
+		public string Text { get; set; } = string.Empty;
+	}
+
+	private sealed record ChatMessage(string User, string Text);
+}

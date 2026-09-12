@@ -1,0 +1,215 @@
+@page "/state-management"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+
+<PageTitle>State Management</PageTitle>
+
+<div class="state-page">
+    <header class="state-header">
+        <div>
+            <p class="eyebrow">Account workspace</p>
+            <h1>Registration &amp; session</h1>
+            <p class="lead">Create a profile and see the active user session update immediately.</p>
+        </div>
+        <span class="session-pill @(IsSignedIn ? "session-active" : "session-idle")">
+            <span class="session-dot" aria-hidden="true"></span>
+            @(IsSignedIn ? "Session active" : "Signed out")
+        </span>
+    </header>
+
+    <div class="state-grid">
+        <section class="state-panel" aria-labelledby="registration-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">New account</p>
+                    <h2 id="registration-heading">Registration form</h2>
+                </div>
+                <span class="panel-icon" aria-hidden="true">+</span>
+            </div>
+
+            <EditForm Model="registration" OnValidSubmit="RegisterUser" FormName="registration-form">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="field-group">
+                    <label for="full-name">Full name</label>
+                    <InputText id="full-name" class="form-control" @bind-Value="registration.FullName" placeholder="Alex Morgan" />
+                    <ValidationMessage For="@(() => registration.FullName)" />
+                </div>
+
+                <div class="field-group">
+                    <label for="email">Email address</label>
+                    <InputText id="email" type="email" class="form-control" @bind-Value="registration.Email" placeholder="alex@example.com" />
+                    <ValidationMessage For="@(() => registration.Email)" />
+                </div>
+
+                <div class="field-group">
+                    <label for="password">Password</label>
+                    <InputText id="password" type="password" class="form-control" @bind-Value="registration.Password" />
+                    <ValidationMessage For="@(() => registration.Password)" />
+                </div>
+
+                <div class="field-group">
+                    <label for="confirm-password">Confirm password</label>
+                    <InputText id="confirm-password" type="password" class="form-control" @bind-Value="registration.ConfirmPassword" />
+                    <ValidationMessage For="@(() => registration.ConfirmPassword)" />
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Create account</button>
+            </EditForm>
+
+            @if (!string.IsNullOrWhiteSpace(feedbackMessage))
+            {
+                <p class="form-feedback" role="status">@feedbackMessage</p>
+            }
+        </section>
+
+        <section class="state-panel session-panel" aria-labelledby="session-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Live state</p>
+                    <h2 id="session-heading">User session tracker</h2>
+                </div>
+                <span class="panel-icon" aria-hidden="true">◌</span>
+            </div>
+
+            <dl class="session-details">
+                <div>
+                    <dt>Signed-in user</dt>
+                    <dd>@(currentSession?.FullName ?? "No active user")</dd>
+                </div>
+                <div>
+                    <dt>Email</dt>
+                    <dd>@(currentSession?.Email ?? "-")</dd>
+                </div>
+                <div>
+                    <dt>Session started</dt>
+                    <dd>@(currentSession?.StartedAt.ToString("MMM d, yyyy h:mm tt") ?? "-")</dd>
+                </div>
+                <div>
+                    <dt>Last activity</dt>
+                    <dd>@(currentSession?.LastActivity.ToString("h:mm:ss tt") ?? "-")</dd>
+                </div>
+            </dl>
+
+            <div class="session-actions">
+                <button type="button" class="btn btn-outline-primary" @onclick="RecordActivity" disabled="@(!IsSignedIn)">Record activity</button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="SignOut" disabled="@(!IsSignedIn)">Sign out</button>
+            </div>
+        </section>
+    </div>
+
+    <section class="state-panel attendance-panel" aria-labelledby="attendance-heading">
+        <div class="panel-heading">
+            <div>
+                <p class="eyebrow">Event participation</p>
+                <h2 id="attendance-heading">Attendance tracker</h2>
+            </div>
+            <span class="attendance-summary">@AttendedCount / @events.Count attended</span>
+        </div>
+
+        @foreach (var eventItem in events)
+        {
+            <article class="attendance-item">
+                <div>
+                    <strong>@eventItem.Name</strong>
+                    <span>@eventItem.Date.ToString("MMM d, yyyy") · @eventItem.Location</span>
+                </div>
+                <div class="attendance-actions">
+                    <span class="attendance-status @(eventItem.IsAttending ? "is-attending" : string.Empty)">
+                        @(eventItem.IsAttending ? "Attending" : "Not marked")
+                    </span>
+                    <button type="button" class="btn btn-sm @(eventItem.IsAttending ? "btn-outline-secondary" : "btn-outline-primary")" @onclick="() => ToggleAttendance(eventItem)" disabled="@(!IsSignedIn)">
+                        @(eventItem.IsAttending ? "Remove" : "Mark present")
+                    </button>
+                </div>
+            </article>
+        }
+
+        @if (!IsSignedIn)
+        {
+            <p class="attendance-note">Create an account to mark your event attendance.</p>
+        }
+    </section>
+</div>
+
+@code {
+    private RegistrationModel registration = new();
+    private UserSession? currentSession;
+    private string? feedbackMessage;
+    private readonly List<EventAttendance> events =
+    [
+        new("Product planning workshop", new DateTime(2026, 9, 18), "Studio A"),
+        new("Community demo day", new DateTime(2026, 9, 24), "Main auditorium"),
+        new("Customer feedback roundtable", new DateTime(2026, 10, 2), "Meeting room 3")
+    ];
+
+    private bool IsSignedIn => currentSession is not null;
+    private int AttendedCount => events.Count(eventItem => eventItem.IsAttending);
+
+    private void RegisterUser()
+    {
+        var now = DateTime.Now;
+        currentSession = new UserSession(registration.FullName, registration.Email, now, now);
+        feedbackMessage = $"Welcome, {registration.FullName}. Your session is active.";
+        registration = new RegistrationModel();
+    }
+
+    private void RecordActivity()
+    {
+        if (currentSession is not null)
+        {
+            currentSession.LastActivity = DateTime.Now;
+        }
+    }
+
+    private void SignOut()
+    {
+        currentSession = null;
+        feedbackMessage = "You have been signed out.";
+    }
+
+    private void ToggleAttendance(EventAttendance eventItem)
+    {
+        if (IsSignedIn)
+        {
+            eventItem.IsAttending = !eventItem.IsAttending;
+            RecordActivity();
+        }
+    }
+
+    private sealed class RegistrationModel
+    {
+        [Required(ErrorMessage = "Enter your full name.")]
+        [StringLength(80, MinimumLength = 2, ErrorMessage = "Use between 2 and 80 characters.")]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Create a password.")]
+        [StringLength(64, MinimumLength = 8, ErrorMessage = "Use at least 8 characters.")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Confirm your password.")]
+        [Compare(nameof(Password), ErrorMessage = "Passwords must match.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+
+    private sealed class UserSession(string fullName, string email, DateTime startedAt, DateTime lastActivity)
+    {
+        public string FullName { get; } = fullName;
+        public string Email { get; } = email;
+        public DateTime StartedAt { get; } = startedAt;
+        public DateTime LastActivity { get; set; } = lastActivity;
+    }
+
+    private sealed class EventAttendance(string name, DateTime date, string location)
+    {
+        public string Name { get; } = name;
+        public DateTime Date { get; } = date;
+        public string Location { get; } = location;
+        public bool IsAttending { get; set; }
+    }
+}
